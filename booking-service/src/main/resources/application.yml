@@ -1,0 +1,31 @@
+spring:
+  application:
+    name: booking-service
+
+  datasource:
+    url: ${BOOKING_DB_URL:jdbc:postgresql://localhost:5432/booking}
+    username: ${BOOKING_DB_USER:holdtheseat}
+    password: ${BOOKING_DB_PASSWORD:holdtheseat}
+
+  flyway:
+    enabled: true
+    validate-on-migrate: true
+
+server:
+  port: ${SERVER_PORT:8081}
+  error:
+    include-stacktrace: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+holdtheseat:
+  api-key:
+    # SHA-256 of the accepted key. Dev key: hts_dev_9f4c2a7b1e8d63054a9c2f7b3e1d8a60
+    hash: ${BOOKING_API_KEY_HASH:8d7937da24e7218a3824dd06c5fe3d505cf9f01eafbda99ab5bc0ea23c0c9269}
