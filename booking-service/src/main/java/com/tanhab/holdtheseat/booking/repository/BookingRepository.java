@@ -1,0 +1,64 @@
+package com.tanhab.holdtheseat.booking.repository;
+
+import com.tanhab.holdtheseat.booking.domain.Booking;
+import com.tanhab.holdtheseat.booking.domain.BookingStatus;
+import org.springframework.jdbc.core.RowMapper;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.stereotype.Repository;
+
+import java.sql.Array;
+import java.sql.SQLException;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+@Repository
+public class BookingRepository {
+
+    private static final String COLUMNS =
+            "id, show_id, seat_ids, customer_id, amount_cents, status, created_at, updated_at";
+
+    private static final RowMapper<Booking> BOOKING_MAPPER = (rs, rowNum) -> new Booking(
+            rs.getObject("id", UUID.class),
+            rs.getObject("show_id", UUID.class),
+            toUuidList(rs.getArray("seat_ids")),
+            rs.getString("customer_id"),
+            rs.getLong("amount_cents"),
+            BookingStatus.valueOf(rs.getString("status")),
+            rs.getTimestamp("created_at").toInstant(),
+            rs.getTimestamp("updated_at").toInstant()
+    );
+
+    private final JdbcClient jdbcClient;
+
+    public BookingRepository(JdbcClient jdbcClient) {
+        this.jdbcClient = jdbcClient;
+    }
+
+    public Booking insert(UUID showId, List<UUID> seatIds, String customerId, long amountCents) {
+        return jdbcClient.sql("""
+                        INSERT INTO bookings (show_id, seat_ids, customer_id, amount_cents, status)
+                        VALUES (:showId, :seatIds, :customerId, :amountCents, :status)
+                        RETURNING %s
+                        """.formatted(COLUMNS))
+                .param("showId", showId)
+                .param("seatIds", seatIds.toArray(UUID[]::new))
+                .param("customerId", customerId)
+                .param("amountCents", amountCents)
+                .param("status", BookingStatus.PENDING.name())
+                .query(BOOKING_MAPPER)
+                .single();
+    }
+
+    public Optional<Booking> findById(UUID id) {
+        return jdbcClient.sql("SELECT %s FROM bookings WHERE id = :id".formatted(COLUMNS))
+                .param("id", id)
+                .query(BOOKING_MAPPER)
+                .optional();
+    }
+
+    private static List<UUID> toUuidList(Array array) throws SQLException {
+        return List.of((UUID[]) array.getArray());
+    }
+
+}
