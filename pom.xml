@@ -20,6 +20,7 @@
     <modules>
         <module>events</module>
         <module>booking-service</module>
+        <module>seat-service</module>
     </modules>
 
     <properties>
