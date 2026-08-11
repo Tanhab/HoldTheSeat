@@ -34,3 +34,6 @@ holdtheseat:
   hold:
     # The payment window. A hold is nothing but a Redis key living this long.
     ttl: ${HOLD_TTL:10m}
+  api-key:
+    # SHA-256 of the accepted key. Dev key: hts_dev_seat_3c8e5b1042fa96d7be40c25a71f8e9d3
+    hash: ${SEAT_API_KEY_HASH:3679a704ad354c2e22121e6543fd91145528c5e675dcf269c438e6128e6a104b}
