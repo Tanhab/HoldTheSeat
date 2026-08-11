@@ -29,3 +29,8 @@ management:
   endpoint:
     health:
       show-details: always
+
+holdtheseat:
+  hold:
+    # The payment window. A hold is nothing but a Redis key living this long.
+    ttl: ${HOLD_TTL:10m}
