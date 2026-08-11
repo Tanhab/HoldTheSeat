@@ -21,11 +21,13 @@ public class SeatHoldStore {
     private final StringRedisTemplate redis;
     private final HoldProperties properties;
     private final RedisScript<List> holdScript;
+    private final RedisScript<Long> releaseScript;
 
     public SeatHoldStore(StringRedisTemplate redis, HoldProperties properties) {
         this.redis = redis;
         this.properties = properties;
-        this.holdScript = load("redis/hold-seats.lua");
+        this.holdScript = load("redis/hold-seats.lua", List.class);
+        this.releaseScript = load("redis/release-hold.lua", Long.class);
     }
 
     public HoldOutcome hold(UUID showId, UUID bookingId, List<UUID> seatIds) {
@@ -59,13 +61,25 @@ public class SeatHoldStore {
     }
 
     /**
+     * @return how many holds were actually released, which is 0 when they had already
+     * expired or been released
+     */
+    public long release(UUID bookingId) {
+        Long released = redis.execute(releaseScript,
+                List.of(HoldKeys.bookingHolds(bookingId)),
+                bookingId.toString());
+
+        return released == null ? 0L : released;
+    }
+
+    /**
      * {@link DefaultRedisScript} caches the SHA and sends EVALSHA, falling back to the full
      * body when the server answers NOSCRIPT — the script cache does not survive a restart.
      */
-    private static RedisScript<List> load(String path) {
-        DefaultRedisScript<List> script = new DefaultRedisScript<>();
+    private static <T> RedisScript<T> load(String path, Class<T> resultType) {
+        DefaultRedisScript<T> script = new DefaultRedisScript<>();
         script.setScriptSource(new ResourceScriptSource(new ClassPathResource(path)));
-        script.setResultType(List.class);
+        script.setResultType(resultType);
         return script;
     }
 

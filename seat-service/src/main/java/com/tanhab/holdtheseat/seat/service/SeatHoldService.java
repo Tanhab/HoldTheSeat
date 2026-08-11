@@ -53,4 +53,11 @@ public class SeatHoldService {
         return holdStore.hold(showId, bookingId, requested);
     }
 
+    /**
+     * The saga's compensating action. Safe to call for a booking that never held anything.
+     */
+    public long release(UUID bookingId) {
+        return holdStore.release(bookingId);
+    }
+
 }
