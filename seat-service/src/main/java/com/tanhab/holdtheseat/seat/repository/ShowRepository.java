@@ -5,6 +5,7 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -20,6 +21,8 @@ public class ShowRepository {
             rs.getTimestamp("created_at").toInstant()
     );
 
+    private static final RowMapper<UUID> ID_MAPPER = (rs, rowNum) -> rs.getObject("id", UUID.class);
+
     private final JdbcClient jdbcClient;
 
     public ShowRepository(JdbcClient jdbcClient) {
@@ -31,6 +34,12 @@ public class ShowRepository {
                 .param("id", showId)
                 .query(SHOW_MAPPER)
                 .optional();
+    }
+
+    public List<UUID> findAllIds() {
+        return jdbcClient.sql("SELECT id FROM shows")
+                .query(ID_MAPPER)
+                .list();
     }
 
 }
