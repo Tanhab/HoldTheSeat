@@ -12,7 +12,6 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      # Postgres 18 images mount /var/lib/postgresql, not /var/lib/postgresql/data.
       - pgdata:/var/lib/postgresql
       - ./docker/init-db:/docker-entrypoint-initdb.d:ro
     healthcheck:

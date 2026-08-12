@@ -16,4 +16,26 @@
     <!-- No spring-boot-maven-plugin: repackaging a library as an executable jar
          would make it undependable. -->
 
+    <dependencies>
+        <!-- Annotations only. Jackson 3 moved core and databind to the tools.jackson
+             group but deliberately left annotations here, so an annotated DTO compiles
+             against either major. Databind belongs to whoever binds, which is never
+             this module at runtime. -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-annotations</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>tools.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
 </project>
