@@ -88,7 +88,7 @@ X-API-Key: {{seatKey}}
 DELETE {{seatHost}}/holds/{{booking}}
 X-API-Key: {{seatKey}}
 
-### booking: create -> 201
+### booking: create -> 201 PENDING with a null amountCents, and BookingRequested on the topic
 POST {{bookingHost}}/bookings
 X-API-Key: {{bookingKey}}
 Content-Type: application/json
@@ -96,6 +96,9 @@ Content-Type: application/json
 {
   "showId": "{{show}}",
   "seatIds": ["{{seatA1}}"],
-  "customerId": "cust-42",
-  "amountCents": 5000
+  "customerId": "cust-42"
 }
+
+### booking: read it back
+GET {{bookingHost}}/bookings/019fe480-c0d3-7000-8a93-145c2aa3a182
+X-API-Key: {{bookingKey}}

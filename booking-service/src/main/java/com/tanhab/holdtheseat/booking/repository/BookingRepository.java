@@ -23,7 +23,8 @@ public class BookingRepository {
             rs.getObject("show_id", UUID.class),
             toUuidList(rs.getArray("seat_ids")),
             rs.getString("customer_id"),
-            rs.getLong("amount_cents"),
+            // getLong would turn a NULL amount into 0, which reads as free rather than unknown.
+            rs.getObject("amount_cents", Long.class),
             BookingStatus.valueOf(rs.getString("status")),
             rs.getTimestamp("created_at").toInstant(),
             rs.getTimestamp("updated_at").toInstant()
@@ -35,19 +36,37 @@ public class BookingRepository {
         this.jdbcClient = jdbcClient;
     }
 
-    public Booking insert(UUID showId, List<UUID> seatIds, String customerId, long amountCents) {
+    public Booking insert(UUID showId, List<UUID> seatIds, String customerId) {
         return jdbcClient.sql("""
-                        INSERT INTO bookings (show_id, seat_ids, customer_id, amount_cents, status)
-                        VALUES (:showId, :seatIds, :customerId, :amountCents, :status)
+                        INSERT INTO bookings (show_id, seat_ids, customer_id, status)
+                        VALUES (:showId, :seatIds, :customerId, :status)
                         RETURNING %s
                         """.formatted(COLUMNS))
                 .param("showId", showId)
                 .param("seatIds", seatIds.toArray(UUID[]::new))
                 .param("customerId", customerId)
-                .param("amountCents", amountCents)
                 .param("status", BookingStatus.PENDING.name())
                 .query(BOOKING_MAPPER)
                 .single();
+    }
+
+    /**
+     * Guarded by {@code status = 'PENDING'} so a redelivered authorization moves nothing and
+     * reports 0, which is what makes the return value a truthful count of what this call
+     * changed.
+     *
+     * @return 1 when this call confirmed the booking, 0 when it was already past PENDING
+     */
+    public int confirm(UUID bookingId, long amountCents) {
+        return jdbcClient.sql("""
+                        UPDATE bookings
+                        SET status = :status, amount_cents = :amountCents, updated_at = now()
+                        WHERE id = :id AND status = 'PENDING'
+                        """)
+                .param("status", BookingStatus.CONFIRMED.name())
+                .param("amountCents", amountCents)
+                .param("id", bookingId)
+                .update();
     }
 
     public Optional<Booking> findById(UUID id) {

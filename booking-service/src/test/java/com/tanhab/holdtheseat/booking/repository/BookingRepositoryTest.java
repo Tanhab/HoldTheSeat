@@ -22,11 +22,12 @@ class BookingRepositoryTest extends AbstractIntegrationTest {
         UUID showId = UUID.randomUUID();
         List<UUID> seatIds = List.of(UUID.randomUUID(), UUID.randomUUID());
 
-        Booking inserted = bookingRepository.insert(showId, seatIds, "customer-1", 4500L);
+        Booking inserted = bookingRepository.insert(showId, seatIds, "customer-1");
 
         assertThat(inserted.id()).isNotNull();
         assertThat(inserted.status()).isEqualTo(BookingStatus.PENDING);
         assertThat(inserted.createdAt()).isNotNull();
+        assertThat(inserted.amountCents()).isNull();
 
         Optional<Booking> found = bookingRepository.findById(inserted.id());
 
@@ -34,13 +35,40 @@ class BookingRepositoryTest extends AbstractIntegrationTest {
             assertThat(booking.showId()).isEqualTo(showId);
             assertThat(booking.seatIds()).containsExactlyElementsOf(seatIds);
             assertThat(booking.customerId()).isEqualTo("customer-1");
-            assertThat(booking.amountCents()).isEqualTo(4500L);
+            assertThat(booking.amountCents()).isNull();
         });
     }
 
     @Test
     void findByIdReturnsEmptyForUnknownId() {
         assertThat(bookingRepository.findById(UUID.randomUUID())).isEmpty();
+    }
+
+    @Test
+    void confirmSetsTheStatusAndThePrice() {
+        Booking pending = bookingRepository.insert(UUID.randomUUID(), List.of(UUID.randomUUID()), "customer-2");
+
+        assertThat(bookingRepository.confirm(pending.id(), 9000L)).isEqualTo(1);
+
+        assertThat(bookingRepository.findById(pending.id())).hasValueSatisfying(booking -> {
+            assertThat(booking.status()).isEqualTo(BookingStatus.CONFIRMED);
+            assertThat(booking.amountCents()).isEqualTo(9000L);
+        });
+    }
+
+    /**
+     * The guard that makes a redelivered PaymentAuthorized harmless: the second call finds
+     * nothing in PENDING and reports that it changed nothing.
+     */
+    @Test
+    void confirmingTwiceChangesNothingTheSecondTime() {
+        Booking pending = bookingRepository.insert(UUID.randomUUID(), List.of(UUID.randomUUID()), "customer-3");
+        bookingRepository.confirm(pending.id(), 9000L);
+
+        assertThat(bookingRepository.confirm(pending.id(), 12345L)).isZero();
+
+        assertThat(bookingRepository.findById(pending.id()))
+                .hasValueSatisfying(booking -> assertThat(booking.amountCents()).isEqualTo(9000L));
     }
 
 }

@@ -46,8 +46,7 @@ class BookingControllerTest {
             {
               "showId": "11111111-1111-1111-1111-111111111111",
               "seatIds": ["22222222-2222-2222-2222-222222222222"],
-              "customerId": "cust-42",
-              "amountCents": 4500
+              "customerId": "cust-42"
             }
             """;
 
@@ -55,8 +54,7 @@ class BookingControllerTest {
             {
               "showId": null,
               "seatIds": [],
-              "customerId": "  ",
-              "amountCents": -5
+              "customerId": "  "
             }
             """;
 
@@ -92,8 +90,7 @@ class BookingControllerTest {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.errors.showId").exists())
                 .andExpect(jsonPath("$.errors.seatIds").exists())
-                .andExpect(jsonPath("$.errors.customerId").exists())
-                .andExpect(jsonPath("$.errors.amountCents").exists());
+                .andExpect(jsonPath("$.errors.customerId").exists());
 
         verifyNoInteractions(bookingService);
     }
@@ -120,7 +117,7 @@ class BookingControllerTest {
     }
 
     private static BookingResponse pendingBooking() {
-        return new BookingResponse(BOOKING_ID, SHOW_ID, List.of(SEAT_ID), "cust-42", 4500L,
+        return new BookingResponse(BOOKING_ID, SHOW_ID, List.of(SEAT_ID), "cust-42", null,
                 BookingStatus.PENDING, Instant.parse("2026-08-09T03:11:11Z"));
     }
 

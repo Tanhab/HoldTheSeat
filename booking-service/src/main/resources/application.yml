@@ -11,6 +11,28 @@ spring:
     enabled: true
     validate-on-migrate: true
 
+  kafka:
+    # Services run on the host, so they use the PLAINTEXT_HOST listener. Inside the compose
+    # network the same broker is kafka:9092.
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      # The outbox row already holds serialised JSON. Parsing it back into an object just to
+      # re-serialise it would be work that can fail after the transaction committed.
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+    consumer:
+      group-id: booking-service
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: com.tanhab.holdtheseat.events
+        # The discriminator is the eventType field in the body, not a header naming a Java
+        # class — otherwise renaming a record breaks every deployed consumer.
+        spring.json.use.type.headers: false
+        spring.json.value.default.type: com.tanhab.holdtheseat.events.DomainEvent
+
 server:
   port: ${SERVER_PORT:8081}
   error:
@@ -26,6 +48,9 @@ management:
       show-details: always
 
 holdtheseat:
+  outbox:
+    poll-interval-ms: ${OUTBOX_POLL_INTERVAL_MS:500}
+    batch-size: ${OUTBOX_BATCH_SIZE:100}
   api-key:
     # SHA-256 of the accepted key. Dev key: hts_dev_9f4c2a7b1e8d63054a9c2f7b3e1d8a60
     hash: ${BOOKING_API_KEY_HASH:8d7937da24e7218a3824dd06c5fe3d505cf9f01eafbda99ab5bc0ea23c0c9269}

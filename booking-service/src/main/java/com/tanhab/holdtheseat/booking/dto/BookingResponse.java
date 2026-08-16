@@ -11,7 +11,8 @@ public record BookingResponse(
         UUID showId,
         List<UUID> seatIds,
         String customerId,
-        long amountCents,
+        // Null until the seat service prices the held seats.
+        Long amountCents,
         BookingStatus status,
         Instant createdAt
 ) {

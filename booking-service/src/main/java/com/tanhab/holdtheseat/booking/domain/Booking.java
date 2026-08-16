@@ -10,7 +10,8 @@ public record Booking(
         UUID showId,
         List<UUID> seatIds,
         String customerId,
-        long amountCents,
+        // Null while PENDING: the seat service owns prices and has not answered yet.
+        Long amountCents,
         BookingStatus status,
         Instant createdAt,
         Instant updatedAt

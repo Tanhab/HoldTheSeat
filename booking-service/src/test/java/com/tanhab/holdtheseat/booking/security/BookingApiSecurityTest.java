@@ -33,8 +33,7 @@ class BookingApiSecurityTest extends AbstractIntegrationTest {
             {
               "showId": "11111111-1111-1111-1111-111111111111",
               "seatIds": ["22222222-2222-2222-2222-222222222222"],
-              "customerId": "cust-42",
-              "amountCents": 4500
+              "customerId": "cust-42"
             }
             """;
 
@@ -95,7 +94,8 @@ class BookingApiSecurityTest extends AbstractIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(id))
                 .andExpect(jsonPath("$.customerId").value("cust-42"))
-                .andExpect(jsonPath("$.amountCents").value(4500))
+                // No price yet: the seat service has not been asked what these seats cost.
+                .andExpect(jsonPath("$.amountCents").doesNotExist())
                 .andExpect(jsonPath("$.seatIds.length()").value(1));
     }
 
