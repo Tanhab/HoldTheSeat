@@ -1,0 +1,83 @@
+package com.tanhab.holdtheseat.seat.kafka;
+
+import com.tanhab.holdtheseat.events.BookingRequested;
+import com.tanhab.holdtheseat.events.DomainEvent;
+import com.tanhab.holdtheseat.events.SeatsHeld;
+import com.tanhab.holdtheseat.seat.domain.Seat;
+import com.tanhab.holdtheseat.seat.hold.HoldOutcome;
+import com.tanhab.holdtheseat.seat.hold.HoldProperties;
+import com.tanhab.holdtheseat.seat.inbox.ProcessedEventRepository;
+import com.tanhab.holdtheseat.seat.outbox.OutboxRepository;
+import com.tanhab.holdtheseat.seat.repository.SeatRepository;
+import com.tanhab.holdtheseat.seat.service.SeatHoldService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.ObjectMapper;
+
+import java.time.Instant;
+import java.util.List;
+
+@Component
+public class BookingEventListener {
+
+    static final String CONSUMER_GROUP = "seat-service";
+
+    private static final Logger log = LoggerFactory.getLogger(BookingEventListener.class);
+
+    private final SeatHoldService seatHoldService;
+    private final SeatRepository seatRepository;
+    private final ProcessedEventRepository processedEvents;
+    private final OutboxRepository outboxRepository;
+    private final HoldProperties holdProperties;
+    private final ObjectMapper objectMapper;
+
+    public BookingEventListener(SeatHoldService seatHoldService,
+                                SeatRepository seatRepository,
+                                ProcessedEventRepository processedEvents,
+                                OutboxRepository outboxRepository,
+                                HoldProperties holdProperties,
+                                ObjectMapper objectMapper) {
+        this.seatHoldService = seatHoldService;
+        this.seatRepository = seatRepository;
+        this.processedEvents = processedEvents;
+        this.outboxRepository = outboxRepository;
+        this.holdProperties = holdProperties;
+        this.objectMapper = objectMapper;
+    }
+
+    @Transactional
+    @KafkaListener(topics = "#{T(com.tanhab.holdtheseat.events.Topics).BOOKINGS}",
+            groupId = CONSUMER_GROUP)
+    public void onBookingEvent(String payload) {
+        DomainEvent event = objectMapper.readValue(payload, DomainEvent.class);
+
+        switch (event) {
+            case BookingRequested requested -> {
+                if (!processedEvents.claim(CONSUMER_GROUP, requested.eventId())) {
+                    return;
+                }
+                HoldOutcome outcome = seatHoldService.hold(requested.showId(), requested.bookingId(),
+                        requested.seatIds());
+                if (outcome.granted()) {
+                    List<Seat> seats = seatRepository.findByIds(requested.showId(), requested.seatIds());
+                    long total = seats.stream().mapToLong(Seat::priceCents).sum();
+                    SeatsHeld seatsHeld = SeatsHeld.of(requested.bookingId(), requested.showId(), requested.seatIds()
+                            , total,
+                            Instant.now().plus(holdProperties.ttl()));
+                    outboxRepository.append(requested.bookingId(), SeatsHeld.TYPE, seatsHeld.topic(),
+                            objectMapper.writeValueAsString(seatsHeld));
+
+                } else {
+                    log.warn("Seats not granted {}", outcome.conflictingSeatIds());
+                }
+
+            }
+            default -> {
+            }
+        }
+    }
+
+}

@@ -16,6 +16,24 @@ spring:
     enabled: true
     validate-on-migrate: true
 
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+    consumer:
+      # Also the consumer_group column in processed_events: dedup is per group, because a
+      # different group legitimately has to process the same event.
+      group-id: seat-service
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      # Strings both ways. spring-kafka's JsonDeserializer builds its own Jackson 2 mapper
+      # rather than the Spring-managed Jackson 3 one, so binding there means a second Jackson
+      # with a second configuration — and java.time fails in it. Listeners deserialize with
+      # the application mapper instead, the same one the outbox serialised with.
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+
 server:
   port: ${SERVER_PORT:8082}
   error:
@@ -31,6 +49,9 @@ management:
       show-details: always
 
 holdtheseat:
+  outbox:
+    poll-interval-ms: ${OUTBOX_POLL_INTERVAL_MS:500}
+    batch-size: ${OUTBOX_BATCH_SIZE:100}
   hold:
     # The payment window. A hold is nothing but a Redis key living this long.
     ttl: ${HOLD_TTL:10m}
