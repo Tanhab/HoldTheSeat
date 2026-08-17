@@ -6,6 +6,7 @@ import com.tanhab.holdtheseat.seat.domain.Seat;
 import com.tanhab.holdtheseat.seat.domain.SeatStatus;
 import com.tanhab.holdtheseat.seat.hold.HoldKeys;
 import com.tanhab.holdtheseat.seat.repository.SeatRepository;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,6 +46,19 @@ class SeatSettlementServiceTest extends AbstractIntegrationTest {
             connection.serverCommands().flushDb();
             return null;
         });
+        releaseSeats();
+    }
+
+    /**
+     * The seat rows are seeded once per JVM and shared by every test class, so a class that
+     * sells seats has to put them back.
+     */
+    @AfterEach
+    void releaseSeatsForOtherTests() {
+        releaseSeats();
+    }
+
+    private void releaseSeats() {
         jdbcClient.sql("UPDATE seats SET status = 'AVAILABLE' WHERE show_id = :showId")
                 .param("showId", SHOW)
                 .update();
