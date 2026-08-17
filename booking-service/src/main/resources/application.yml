@@ -25,13 +25,11 @@ spring:
       group-id: booking-service
       auto-offset-reset: earliest
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
-      properties:
-        spring.json.trusted.packages: com.tanhab.holdtheseat.events
-        # The discriminator is the eventType field in the body, not a header naming a Java
-        # class — otherwise renaming a record breaks every deployed consumer.
-        spring.json.use.type.headers: false
-        spring.json.value.default.type: com.tanhab.holdtheseat.events.DomainEvent
+      # Strings both ways. spring-kafka's JsonDeserializer builds its own Jackson 2 mapper
+      # rather than the Spring-managed Jackson 3 one, so binding there means a second Jackson
+      # with a second configuration — and java.time fails in it. Listeners deserialize with
+      # the application mapper instead, the same one the outbox serialised with.
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
 
 server:
   port: ${SERVER_PORT:8081}
