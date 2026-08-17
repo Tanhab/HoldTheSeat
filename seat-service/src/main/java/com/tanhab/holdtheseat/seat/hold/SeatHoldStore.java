@@ -22,12 +22,16 @@ public class SeatHoldStore {
     private final HoldProperties properties;
     private final RedisScript<List> holdScript;
     private final RedisScript<Long> releaseScript;
+    private final RedisScript<Long> validateScript;
+    private final RedisScript<Long> settleScript;
 
     public SeatHoldStore(StringRedisTemplate redis, HoldProperties properties) {
         this.redis = redis;
         this.properties = properties;
         this.holdScript = load("redis/hold-seats.lua", List.class);
         this.releaseScript = load("redis/release-hold.lua", Long.class);
+        this.validateScript = load("redis/validate-hold.lua", Long.class);
+        this.settleScript = load("redis/settle-hold.lua", Long.class);
     }
 
     public HoldOutcome hold(UUID showId, UUID bookingId, List<UUID> seatIds) {
@@ -70,6 +74,44 @@ public class SeatHoldStore {
                 bookingId.toString());
 
         return released == null ? 0L : released;
+    }
+
+    /**
+     * @return whether every seat is still held by this booking, so the sale can go ahead
+     */
+    public boolean holdsAreIntact(UUID showId, UUID bookingId, List<UUID> seatIds) {
+        List<String> args = new ArrayList<>();
+        args.add(bookingId.toString());
+        for (UUID seatId : seatIds) {
+            args.add(HoldKeys.hold(showId, seatId));
+        }
+
+        Long intact = redis.execute(validateScript,
+                List.of(HoldKeys.bookingHolds(bookingId)),
+                args.toArray());
+
+        return intact != null && intact == 1L;
+    }
+
+    /**
+     * Moves the seats into the sold set and drops the holds. Called only after Postgres has
+     * committed them as SOLD.
+     *
+     * @return how many hold keys were deleted
+     */
+    public long settle(UUID showId, UUID bookingId, List<UUID> seatIds) {
+        List<String> args = new ArrayList<>();
+        args.add(HoldKeys.sold(showId));
+        for (UUID seatId : seatIds) {
+            args.add(HoldKeys.hold(showId, seatId));
+            args.add(seatId.toString());
+        }
+
+        Long settled = redis.execute(settleScript,
+                List.of(HoldKeys.bookingHolds(bookingId)),
+                args.toArray());
+
+        return settled == null ? 0L : settled;
     }
 
     /**

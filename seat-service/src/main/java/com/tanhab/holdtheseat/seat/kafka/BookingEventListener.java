@@ -1,5 +1,6 @@
 package com.tanhab.holdtheseat.seat.kafka;
 
+import com.tanhab.holdtheseat.events.BookingConfirmed;
 import com.tanhab.holdtheseat.events.BookingRequested;
 import com.tanhab.holdtheseat.events.DomainEvent;
 import com.tanhab.holdtheseat.events.SeatsHeld;
@@ -10,6 +11,7 @@ import com.tanhab.holdtheseat.seat.inbox.ProcessedEventRepository;
 import com.tanhab.holdtheseat.seat.outbox.OutboxRepository;
 import com.tanhab.holdtheseat.seat.repository.SeatRepository;
 import com.tanhab.holdtheseat.seat.service.SeatHoldService;
+import com.tanhab.holdtheseat.seat.service.SeatSettlementService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -28,6 +30,7 @@ public class BookingEventListener {
     private static final Logger log = LoggerFactory.getLogger(BookingEventListener.class);
 
     private final SeatHoldService seatHoldService;
+    private final SeatSettlementService settlementService;
     private final SeatRepository seatRepository;
     private final ProcessedEventRepository processedEvents;
     private final OutboxRepository outboxRepository;
@@ -35,12 +38,14 @@ public class BookingEventListener {
     private final ObjectMapper objectMapper;
 
     public BookingEventListener(SeatHoldService seatHoldService,
+                                SeatSettlementService settlementService,
                                 SeatRepository seatRepository,
                                 ProcessedEventRepository processedEvents,
                                 OutboxRepository outboxRepository,
                                 HoldProperties holdProperties,
                                 ObjectMapper objectMapper) {
         this.seatHoldService = seatHoldService;
+        this.settlementService = settlementService;
         this.seatRepository = seatRepository;
         this.processedEvents = processedEvents;
         this.outboxRepository = outboxRepository;
@@ -75,8 +80,13 @@ public class BookingEventListener {
                 }
 
             }
-            default -> {
+            case BookingConfirmed confirmed -> {
+                if (!processedEvents.claim(CONSUMER_GROUP, confirmed.eventId())) {
+                    return;
+                }
+                settlementService.settle(confirmed);
             }
+            default -> log.debug("Not handled here: {}", event.getClass().getSimpleName());
         }
     }
 
