@@ -1,6 +1,8 @@
 package com.tanhab.holdtheseat.payment.kafka;
 
+import com.tanhab.holdtheseat.events.DomainEvent;
 import com.tanhab.holdtheseat.events.PaymentAuthorized;
+import com.tanhab.holdtheseat.events.PaymentFailed;
 import com.tanhab.holdtheseat.events.SeatsHeld;
 import com.tanhab.holdtheseat.events.Topics;
 import com.tanhab.holdtheseat.payment.AbstractIntegrationTest;
@@ -84,9 +86,85 @@ class SeatEventListenerTest extends AbstractIntegrationTest {
         assertThat(paymentRowsFor(bookingId)).isEqualTo(1);
     }
 
+    @Test
+    void aDeclinedCardWritesAFailedRowAndAnnouncesFailure() {
+        UUID bookingId = UUID.randomUUID();
+
+        publish(SeatsHeld.of(bookingId, SHOW, List.of(SEAT), "decline-me", 8500L,
+                Instant.now().plusSeconds(600)));
+
+        await().atMost(Duration.ofSeconds(20))
+                .untilAsserted(() -> assertThat(paymentRepository.findByBookingId(bookingId)).isPresent());
+
+        assertThat(paymentRepository.findByBookingId(bookingId)).hasValueSatisfying(payment -> {
+            assertThat(payment.status()).isEqualTo(PaymentStatus.FAILED);
+            assertThat(payment.gatewayRef()).isNull();
+        });
+
+        // Exactly one outbox row, and it is a failure — no authorization was announced.
+        assertThat(outboxRowsFor(bookingId)).isEqualTo(1);
+        PaymentFailed failed = readFailed(bookingId);
+        assertThat(failed.amountCents()).isEqualTo(8500L);
+        assertThat(failed.gatewayReason()).isEqualTo("card_declined");
+    }
+
+    @Test
+    void aRedeliveredDeclineChargesOnce() {
+        UUID bookingId = UUID.randomUUID();
+        SeatsHeld held = SeatsHeld.of(bookingId, SHOW, List.of(SEAT), "decline-me", 5000L,
+                Instant.now().plusSeconds(600));
+
+        publish(held);
+        await().atMost(Duration.ofSeconds(20))
+                .untilAsserted(() -> assertThat(outboxRowsFor(bookingId)).isEqualTo(1));
+
+        publish(held);
+
+        await().during(Duration.ofSeconds(3))
+                .atMost(Duration.ofSeconds(20))
+                .untilAsserted(() -> assertThat(outboxRowsFor(bookingId)).isEqualTo(1));
+        assertThat(paymentRowsFor(bookingId)).isEqualTo(1);
+    }
+
+    @Test
+    void aDeclineDoesNotStallThePartition() {
+        UUID declined = UUID.randomUUID();
+        publishToPartition(SeatsHeld.of(declined, SHOW, List.of(SEAT), "decline-me", 5000L,
+                Instant.now().plusSeconds(600)), 0);
+        await().atMost(Duration.ofSeconds(20))
+                .untilAsserted(() -> assertThat(readFailed(declined).gatewayReason()).isEqualTo("card_declined"));
+
+        // A well-formed approving charge behind the decline on the same partition still runs.
+        UUID approved = UUID.randomUUID();
+        publishToPartition(SeatsHeld.of(approved, SHOW, List.of(SEAT), "alice", 5000L,
+                Instant.now().plusSeconds(600)), 0);
+
+        await().atMost(Duration.ofSeconds(20))
+                .untilAsserted(() -> assertThat(paymentRepository.findByBookingId(approved))
+                        .hasValueSatisfying(p -> assertThat(p.status()).isEqualTo(PaymentStatus.AUTHORIZED)));
+    }
+
     private void publish(SeatsHeld event) {
         kafkaTemplate.send(Topics.SEATS, event.bookingId().toString(),
                 objectMapper.writeValueAsString(event)).join();
+    }
+
+    private void publishToPartition(SeatsHeld event, int partition) {
+        kafkaTemplate.send(Topics.SEATS, partition, event.bookingId().toString(),
+                objectMapper.writeValueAsString(event)).join();
+    }
+
+    private PaymentFailed readFailed(UUID bookingId) {
+        String payload = jdbcClient.sql("""
+                        SELECT payload::text FROM outbox
+                        WHERE aggregate_id = :id AND event_type = :type
+                        """)
+                .param("id", bookingId)
+                .param("type", PaymentFailed.TYPE)
+                .query(String.class)
+                .single();
+
+        return (PaymentFailed) objectMapper.readValue(payload, DomainEvent.class);
     }
 
     private PaymentAuthorized readAuthorized(UUID bookingId) {

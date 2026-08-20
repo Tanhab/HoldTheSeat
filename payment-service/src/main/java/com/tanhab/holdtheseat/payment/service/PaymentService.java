@@ -1,6 +1,7 @@
 package com.tanhab.holdtheseat.payment.service;
 
 import com.tanhab.holdtheseat.events.PaymentAuthorized;
+import com.tanhab.holdtheseat.events.PaymentFailed;
 import com.tanhab.holdtheseat.events.SeatsHeld;
 import com.tanhab.holdtheseat.payment.domain.Payment;
 import com.tanhab.holdtheseat.payment.domain.PaymentStatus;
@@ -38,7 +39,17 @@ public class PaymentService {
      * are written in the caller's transaction, alongside the dedup row.
      */
     public void authorize(SeatsHeld held) {
-        GatewayResult result = gateway.authorize(held.bookingId(), held.amountCents());
+        GatewayResult result = gateway.authorize(held.bookingId(), held.customerId(), held.amountCents());
+
+        if (!result.approved()) {
+            Payment payment = paymentRepository.insert(
+                    held.bookingId(), held.amountCents(), PaymentStatus.FAILED, null);
+            PaymentFailed failed = PaymentFailed.of(payment.bookingId(), payment.amountCents(), result.declineReason());
+            outboxRepository.append(failed.bookingId(), PaymentFailed.TYPE, failed.topic(),
+                    objectMapper.writeValueAsString(failed));
+            return;
+
+        }
 
         Payment payment = paymentRepository.insert(
                 held.bookingId(), held.amountCents(), PaymentStatus.AUTHORIZED, result.reference());
