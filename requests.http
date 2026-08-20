@@ -9,6 +9,7 @@
 @show = 11111111-1111-1111-1111-111111111111
 @seatA1 = aaaaaaaa-0000-0000-0000-000000000001
 @seatA2 = aaaaaaaa-0000-0000-0000-000000000002
+@seatA3 = aaaaaaaa-0000-0000-0000-000000000003
 @booking = 33333333-3333-3333-3333-333333333333
 @otherBooking = 44444444-4444-4444-4444-444444444444
 
@@ -99,6 +100,47 @@ Content-Type: application/json
   "customerId": "cust-42"
 }
 
-### booking: read it back
-GET {{bookingHost}}/bookings/019fe480-c0d3-7000-8a93-145c2aa3a182
+> {% client.global.set("lastBooking", response.body.id); %}
+
+### booking: read it back a second later -> CONFIRMED, amountCents priced by the seat service
+GET {{bookingHost}}/bookings/{{lastBooking}}
+X-API-Key: {{bookingKey}}
+
+
+### booking: a card that always declines -> 201 PENDING, then CANCELLED
+### customerId "decline-me" is the seeded decline rule (holdtheseat.gateway.decline-customer-id).
+POST {{bookingHost}}/bookings
+X-API-Key: {{bookingKey}}
+Content-Type: application/json
+
+{
+  "showId": "{{show}}",
+  "seatIds": ["{{seatA3}}"],
+  "customerId": "decline-me"
+}
+
+> {% client.global.set("declinedBooking", response.body.id); %}
+
+### booking: read it back a second later -> CANCELLED, cancellationReason PAYMENT_FAILED
+### The seats were held then released: no hold: key for seatA3 remains, and it is not in sold:.
+GET {{bookingHost}}/bookings/{{declinedBooking}}
+X-API-Key: {{bookingKey}}
+
+### booking: a seat already sold -> 201 PENDING, then CANCELLED with a different reason
+### Run the happy-path booking for seatA1 above first, so seatA1 is SOLD when this arrives.
+POST {{bookingHost}}/bookings
+X-API-Key: {{bookingKey}}
+Content-Type: application/json
+
+{
+  "showId": "{{show}}",
+  "seatIds": ["{{seatA1}}"],
+  "customerId": "cust-99"
+}
+
+> {% client.global.set("rejectedBooking", response.body.id); %}
+
+### booking: read it back -> CANCELLED, cancellationReason SEATS_REJECTED
+### No payment was ever attempted for this booking: the payments table has no row for it.
+GET {{bookingHost}}/bookings/{{rejectedBooking}}
 X-API-Key: {{bookingKey}}
