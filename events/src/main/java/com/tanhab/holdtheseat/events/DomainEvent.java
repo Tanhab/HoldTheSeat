@@ -8,25 +8,33 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * The saga's vocabulary. Every event on every topic is one of these four.
+ * The saga's vocabulary. Every event on every topic is one of these eight: four that
+ * announce progress and four that announce a failure and its undoing.
  *
  * <p>The discriminator is a {@code eventType} string written into the JSON body rather than
  * Jackson's default of a fully-qualified class name in a Kafka header. A class name on the
  * wire would make renaming a record here a breaking change for every deployed consumer; a
  * string constant makes the contract the protocol's, not the Java layout's.
  *
- * <p>Sealed so a new event type cannot be added without the compiler pointing at every
- * handler that has to decide what to do with it.
+ * <p>Sealed so the set is closed and a switch over it can be checked. Note that a handler
+ * ending in a {@code default} arm is already exhaustive, so adding a type here compiles
+ * clean everywhere — the listeners tolerate types they do not know on purpose, which is
+ * the price of several services sharing one topic.
  */
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "eventType")
 @JsonSubTypes({
         @JsonSubTypes.Type(value = BookingRequested.class, name = BookingRequested.TYPE),
         @JsonSubTypes.Type(value = SeatsHeld.class, name = SeatsHeld.TYPE),
         @JsonSubTypes.Type(value = PaymentAuthorized.class, name = PaymentAuthorized.TYPE),
-        @JsonSubTypes.Type(value = BookingConfirmed.class, name = BookingConfirmed.TYPE)
+        @JsonSubTypes.Type(value = BookingConfirmed.class, name = BookingConfirmed.TYPE),
+        @JsonSubTypes.Type(value = SeatsRejected.class, name = SeatsRejected.TYPE),
+        @JsonSubTypes.Type(value = PaymentFailed.class, name = PaymentFailed.TYPE),
+        @JsonSubTypes.Type(value = BookingCancelled.class, name = BookingCancelled.TYPE),
+        @JsonSubTypes.Type(value = SeatsReleased.class, name = SeatsReleased.TYPE)
 })
 public sealed interface DomainEvent
-        permits BookingRequested, SeatsHeld, PaymentAuthorized, BookingConfirmed {
+        permits BookingRequested, SeatsHeld, PaymentAuthorized, BookingConfirmed,
+                SeatsRejected, PaymentFailed, BookingCancelled, SeatsReleased {
 
     /**
      * Minted once, when the producing service writes its outbox row. Consumers dedup on it,

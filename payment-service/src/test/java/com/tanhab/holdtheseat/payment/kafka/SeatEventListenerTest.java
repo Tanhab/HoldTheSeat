@@ -49,7 +49,7 @@ class SeatEventListenerTest extends AbstractIntegrationTest {
     void chargesTheQuotedAmountAndAnnouncesIt() {
         UUID bookingId = UUID.randomUUID();
 
-        publish(SeatsHeld.of(bookingId, SHOW, List.of(SEAT), 8500L, Instant.now().plusSeconds(600)));
+        publish(SeatsHeld.of(bookingId, SHOW, List.of(SEAT), "alice", 8500L, Instant.now().plusSeconds(600)));
 
         await().atMost(Duration.ofSeconds(20))
                 .untilAsserted(() -> assertThat(paymentRepository.findByBookingId(bookingId)).isPresent());
@@ -70,7 +70,7 @@ class SeatEventListenerTest extends AbstractIntegrationTest {
     @Test
     void aRedeliveredEventChargesOnce() {
         UUID bookingId = UUID.randomUUID();
-        SeatsHeld held = SeatsHeld.of(bookingId, SHOW, List.of(SEAT), 5000L, Instant.now().plusSeconds(600));
+        SeatsHeld held = SeatsHeld.of(bookingId, SHOW, List.of(SEAT), "alice", 5000L, Instant.now().plusSeconds(600));
 
         publish(held);
         await().atMost(Duration.ofSeconds(20))

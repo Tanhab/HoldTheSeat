@@ -69,8 +69,8 @@ public class BookingEventListener {
                 if (outcome.granted()) {
                     List<Seat> seats = seatRepository.findByIds(requested.showId(), requested.seatIds());
                     long total = seats.stream().mapToLong(Seat::priceCents).sum();
-                    SeatsHeld seatsHeld = SeatsHeld.of(requested.bookingId(), requested.showId(), requested.seatIds()
-                            , total,
+                    SeatsHeld seatsHeld = SeatsHeld.of(requested.bookingId(), requested.showId(),
+                            requested.seatIds(), requested.customerId(), total,
                             Instant.now().plus(holdProperties.ttl()));
                     outboxRepository.append(requested.bookingId(), SeatsHeld.TYPE, seatsHeld.topic(),
                             objectMapper.writeValueAsString(seatsHeld));
