@@ -118,7 +118,7 @@ class BookingControllerTest {
 
     private static BookingResponse pendingBooking() {
         return new BookingResponse(BOOKING_ID, SHOW_ID, List.of(SEAT_ID), "cust-42", null,
-                BookingStatus.PENDING, Instant.parse("2026-08-09T03:11:11Z"));
+                BookingStatus.PENDING, null, Instant.parse("2026-08-09T03:11:11Z"));
     }
 
 }

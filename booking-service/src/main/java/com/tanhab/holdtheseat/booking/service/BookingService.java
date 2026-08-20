@@ -6,8 +6,10 @@ import com.tanhab.holdtheseat.booking.dto.CreateBookingRequest;
 import com.tanhab.holdtheseat.booking.exception.BookingNotFoundException;
 import com.tanhab.holdtheseat.booking.outbox.OutboxRepository;
 import com.tanhab.holdtheseat.booking.repository.BookingRepository;
+import com.tanhab.holdtheseat.events.BookingCancelled;
 import com.tanhab.holdtheseat.events.BookingConfirmed;
 import com.tanhab.holdtheseat.events.BookingRequested;
+import com.tanhab.holdtheseat.events.CancellationReason;
 import com.tanhab.holdtheseat.events.PaymentAuthorized;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
 
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -76,6 +79,17 @@ public class BookingService {
                 objectMapper.writeValueAsString(event));
     }
 
+    @Transactional
+    public void cancel(UUID bookingId, UUID showId, List<UUID> seatIds, CancellationReason reason) {
+        if (bookingRepository.cancel(bookingId, reason) == 0) {
+            log.warn("No pending booking {} to cancel", bookingId);
+            return;
+        }
+        BookingCancelled cancelled = BookingCancelled.of(bookingId, showId, seatIds, reason);
+        outboxRepository.append(cancelled.bookingId(), BookingCancelled.TYPE, cancelled.topic(),
+                objectMapper.writeValueAsString(cancelled));
+    }
+
     public BookingResponse findById(UUID id) {
         Booking booking = bookingRepository.findById(id).orElseThrow(() -> new BookingNotFoundException(id));
         return toBookingResponse(booking);
@@ -83,7 +97,7 @@ public class BookingService {
 
     private BookingResponse toBookingResponse(Booking booking) {
         return new BookingResponse(booking.id(), booking.showId(), booking.seatIds(), booking.customerId(),
-                booking.amountCents(), booking.status(), booking.createdAt());
+                booking.amountCents(), booking.status(), booking.cancellationReason(), booking.createdAt());
     }
 
 }

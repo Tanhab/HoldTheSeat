@@ -2,6 +2,7 @@ package com.tanhab.holdtheseat.booking.repository;
 
 import com.tanhab.holdtheseat.booking.domain.Booking;
 import com.tanhab.holdtheseat.booking.domain.BookingStatus;
+import com.tanhab.holdtheseat.events.CancellationReason;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -16,7 +17,8 @@ import java.util.UUID;
 public class BookingRepository {
 
     private static final String COLUMNS =
-            "id, show_id, seat_ids, customer_id, amount_cents, status, created_at, updated_at";
+            "id, show_id, seat_ids, customer_id, amount_cents, status, "
+                    + "cancellation_reason, created_at, updated_at";
 
     private static final RowMapper<Booking> BOOKING_MAPPER = (rs, rowNum) -> new Booking(
             rs.getObject("id", UUID.class),
@@ -26,6 +28,7 @@ public class BookingRepository {
             // getLong would turn a NULL amount into 0, which reads as free rather than unknown.
             rs.getObject("amount_cents", Long.class),
             BookingStatus.valueOf(rs.getString("status")),
+            toCancellationReason(rs.getString("cancellation_reason")),
             rs.getTimestamp("created_at").toInstant(),
             rs.getTimestamp("updated_at").toInstant()
     );
@@ -69,11 +72,33 @@ public class BookingRepository {
                 .update();
     }
 
+    /**
+     * Moves a booking to CANCELLED and records why, guarded so only a PENDING booking can be
+     * cancelled and a redelivery moves nothing.
+     *
+     * @return 1 when this call cancelled the booking, 0 when it was already past PENDING
+     */
+    public int cancel(UUID bookingId, CancellationReason reason) {
+        return jdbcClient.sql("""
+                        UPDATE bookings
+                        SET status = :status, cancellation_reason = :reason, updated_at = now()
+                        WHERE id = :id AND status = 'PENDING'
+                        """)
+                .param("status", BookingStatus.CANCELLED.name())
+                .param("reason", reason.name())
+                .param("id", bookingId)
+                .update();
+    }
+
     public Optional<Booking> findById(UUID id) {
         return jdbcClient.sql("SELECT %s FROM bookings WHERE id = :id".formatted(COLUMNS))
                 .param("id", id)
                 .query(BOOKING_MAPPER)
                 .optional();
+    }
+
+    private static CancellationReason toCancellationReason(String value) {
+        return value == null ? null : CancellationReason.valueOf(value);
     }
 
     private static List<UUID> toUuidList(Array array) throws SQLException {
