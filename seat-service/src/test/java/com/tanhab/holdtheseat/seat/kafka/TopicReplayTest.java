@@ -34,6 +34,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -164,8 +165,19 @@ class TopicReplayTest extends AbstractIntegrationTest {
     private Snapshot snapshot(UUID bookingId) {
         return new Snapshot(outboxRowsFor(bookingId),
                 redis.opsForSet().members(HoldKeys.sold(SHOW)),
-                redis.keys("hold:*"),
+                heldKeysUnderTest(),
                 statusOf(A1), statusOf(A2));
+    }
+
+    /**
+     * Scoped to this test's own seats. A global {@code keys("hold:*")} would pick up holds
+     * left by other classes sharing this JVM's broker and Redis, which have nothing to do with
+     * whether replaying this booking changed anything.
+     */
+    private Set<String> heldKeysUnderTest() {
+        return Stream.of(HoldKeys.hold(SHOW, A1), HoldKeys.hold(SHOW, A2))
+                .filter(redis::hasKey)
+                .collect(Collectors.toSet());
     }
 
     private void publish(DomainEvent event) {

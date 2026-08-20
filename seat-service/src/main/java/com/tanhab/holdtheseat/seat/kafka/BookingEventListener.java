@@ -1,5 +1,6 @@
 package com.tanhab.holdtheseat.seat.kafka;
 
+import com.tanhab.holdtheseat.events.BookingCancelled;
 import com.tanhab.holdtheseat.events.BookingConfirmed;
 import com.tanhab.holdtheseat.events.BookingRequested;
 import com.tanhab.holdtheseat.events.DomainEvent;
@@ -15,6 +16,7 @@ import com.tanhab.holdtheseat.seat.inbox.ProcessedEventRepository;
 import com.tanhab.holdtheseat.seat.outbox.OutboxRepository;
 import com.tanhab.holdtheseat.seat.repository.SeatRepository;
 import com.tanhab.holdtheseat.seat.service.SeatHoldService;
+import com.tanhab.holdtheseat.seat.service.SeatReleaseService;
 import com.tanhab.holdtheseat.seat.service.SeatSettlementService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +37,7 @@ public class BookingEventListener {
 
     private final SeatHoldService seatHoldService;
     private final SeatSettlementService settlementService;
+    private final SeatReleaseService releaseService;
     private final SeatRepository seatRepository;
     private final ProcessedEventRepository processedEvents;
     private final OutboxRepository outboxRepository;
@@ -43,6 +46,7 @@ public class BookingEventListener {
 
     public BookingEventListener(SeatHoldService seatHoldService,
                                 SeatSettlementService settlementService,
+                                SeatReleaseService releaseService,
                                 SeatRepository seatRepository,
                                 ProcessedEventRepository processedEvents,
                                 OutboxRepository outboxRepository,
@@ -50,6 +54,7 @@ public class BookingEventListener {
                                 ObjectMapper objectMapper) {
         this.seatHoldService = seatHoldService;
         this.settlementService = settlementService;
+        this.releaseService = releaseService;
         this.seatRepository = seatRepository;
         this.processedEvents = processedEvents;
         this.outboxRepository = outboxRepository;
@@ -111,6 +116,12 @@ public class BookingEventListener {
                     return;
                 }
                 settlementService.settle(confirmed);
+            }
+            case BookingCancelled cancelled -> {
+                if (!processedEvents.claim(CONSUMER_GROUP, cancelled.eventId())) {
+                    return;
+                }
+                releaseService.release(cancelled);
             }
             default -> log.debug("Not handled here: {}", event.getClass().getSimpleName());
         }

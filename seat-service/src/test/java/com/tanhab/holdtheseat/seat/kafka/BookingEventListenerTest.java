@@ -1,10 +1,13 @@
 package com.tanhab.holdtheseat.seat.kafka;
 
+import com.tanhab.holdtheseat.events.BookingCancelled;
 import com.tanhab.holdtheseat.events.BookingRequested;
+import com.tanhab.holdtheseat.events.CancellationReason;
 import com.tanhab.holdtheseat.events.DomainEvent;
 import com.tanhab.holdtheseat.events.RejectionReason;
 import com.tanhab.holdtheseat.events.SeatsHeld;
 import com.tanhab.holdtheseat.events.SeatsRejected;
+import com.tanhab.holdtheseat.events.SeatsReleased;
 import com.tanhab.holdtheseat.events.Topics;
 import com.tanhab.holdtheseat.seat.AbstractIntegrationTest;
 import com.tanhab.holdtheseat.seat.hold.HoldKeys;
@@ -145,6 +148,87 @@ class BookingEventListenerTest extends AbstractIntegrationTest {
         assertThat(redis.opsForValue().get(HoldKeys.hold(SHOW, B1))).isEqualTo(healthy.toString());
     }
 
+    @Test
+    void aCancellationFreesTheHeldSeatsAndAnnouncesThem() {
+        UUID bookingId = UUID.randomUUID();
+        publish(BookingRequested.of(bookingId, SHOW, List.of(A1, B1), "cust-cancel"));
+        await().atMost(Duration.ofSeconds(20))
+                .untilAsserted(() -> assertThat(outboxRowsFor(bookingId)).isEqualTo(1));
+
+        publish(BookingCancelled.of(bookingId, SHOW, List.of(A1, B1), CancellationReason.PAYMENT_FAILED));
+
+        // The hold row plus the release row: two events for one booking's whole story.
+        await().atMost(Duration.ofSeconds(20))
+                .untilAsserted(() -> assertThat(outboxRowsFor(bookingId)).isEqualTo(2));
+
+        SeatsReleased released = readReleased(bookingId);
+        assertThat(released.releasedCount()).isEqualTo(2);
+        assertThat(released.seatIds()).containsExactlyInAnyOrder(A1, B1);
+
+        assertThat(redis.hasKey(HoldKeys.hold(SHOW, A1))).isFalse();
+        assertThat(redis.hasKey(HoldKeys.hold(SHOW, B1))).isFalse();
+        assertThat(redis.hasKey(HoldKeys.bookingHolds(bookingId))).isFalse();
+    }
+
+    @Test
+    void aCancellationForABookingThatNeverHeldAnythingAnnouncesNothing() {
+        UUID bookingId = UUID.randomUUID();
+        BookingCancelled cancelled =
+                BookingCancelled.of(bookingId, SHOW, List.of(A1), CancellationReason.SEATS_REJECTED);
+
+        publish(cancelled);
+
+        // Wait for proof the listener handled it, then assert it announced nothing.
+        await().atMost(Duration.ofSeconds(20))
+                .untilAsserted(() -> assertThat(processedEventRowsFor(cancelled.eventId())).isEqualTo(1));
+        assertThat(outboxRowsFor(bookingId)).isZero();
+    }
+
+    @Test
+    void aRedeliveredCancellationReleasesOnce() {
+        UUID bookingId = UUID.randomUUID();
+        publish(BookingRequested.of(bookingId, SHOW, List.of(A2), "cust-dup-cancel"));
+        await().atMost(Duration.ofSeconds(20))
+                .untilAsserted(() -> assertThat(outboxRowsFor(bookingId)).isEqualTo(1));
+
+        BookingCancelled cancelled =
+                BookingCancelled.of(bookingId, SHOW, List.of(A2), CancellationReason.PAYMENT_FAILED);
+        publish(cancelled);
+        await().atMost(Duration.ofSeconds(20))
+                .untilAsserted(() -> assertThat(outboxRowsFor(bookingId)).isEqualTo(2));
+
+        publish(cancelled);
+
+        await().during(Duration.ofSeconds(3))
+                .atMost(Duration.ofSeconds(20))
+                .untilAsserted(() -> assertThat(outboxRowsFor(bookingId)).isEqualTo(2));
+    }
+
+    @Test
+    void aCancellationDoesNotFreeASeatAnotherBookingNowHolds() {
+        UUID original = UUID.randomUUID();
+        publish(BookingRequested.of(original, SHOW, List.of(A1), "cust-original"));
+        await().atMost(Duration.ofSeconds(20))
+                .untilAsserted(() -> assertThat(outboxRowsFor(original)).isEqualTo(1));
+
+        // The original's hold key gets reclaimed by another booking after a TTL lapse, while its
+        // reverse index still lists the seat — the exact stale-release trap release-hold.lua guards.
+        UUID reclaimer = UUID.randomUUID();
+        redis.opsForValue().set(HoldKeys.hold(SHOW, A1), reclaimer.toString());
+
+        BookingCancelled late =
+                BookingCancelled.of(original, SHOW, List.of(A1), CancellationReason.PAYMENT_FAILED);
+        publish(late);
+
+        await().atMost(Duration.ofSeconds(20))
+                .untilAsserted(() -> assertThat(processedEventRowsFor(late.eventId())).isEqualTo(1));
+
+        // The reclaimer keeps the seat, and nothing was announced because nothing of the
+        // original's was freed.
+        assertThat(redis.opsForValue().get(HoldKeys.hold(SHOW, A1))).isEqualTo(reclaimer.toString());
+        assertThat(releasedRowsFor(original)).isZero();
+    }
+
     private void publish(BookingRequested event) {
         kafkaTemplate.send(Topics.BOOKINGS, event.bookingId().toString(),
                 objectMapper.writeValueAsString(event)).join();
@@ -166,6 +250,35 @@ class BookingEventListenerTest extends AbstractIntegrationTest {
                 .single();
 
         return (SeatsRejected) objectMapper.readValue(payload, DomainEvent.class);
+    }
+
+    private void publish(BookingCancelled event) {
+        kafkaTemplate.send(Topics.BOOKINGS, event.bookingId().toString(),
+                objectMapper.writeValueAsString(event)).join();
+    }
+
+    private SeatsReleased readReleased(UUID bookingId) {
+        String payload = jdbcClient.sql("""
+                        SELECT payload::text FROM outbox
+                        WHERE aggregate_id = :id AND event_type = :type
+                        """)
+                .param("id", bookingId)
+                .param("type", SeatsReleased.TYPE)
+                .query(String.class)
+                .single();
+
+        return (SeatsReleased) objectMapper.readValue(payload, DomainEvent.class);
+    }
+
+    private int releasedRowsFor(UUID bookingId) {
+        return jdbcClient.sql("""
+                        SELECT count(*) FROM outbox
+                        WHERE aggregate_id = :id AND event_type = :type
+                        """)
+                .param("id", bookingId)
+                .param("type", SeatsReleased.TYPE)
+                .query(Integer.class)
+                .single();
     }
 
     private SeatsHeld readSeatsHeld(UUID bookingId) {
