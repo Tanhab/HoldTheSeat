@@ -11,6 +11,7 @@ import com.tanhab.holdtheseat.events.BookingConfirmed;
 import com.tanhab.holdtheseat.events.CancellationReason;
 import com.tanhab.holdtheseat.events.DomainEvent;
 import com.tanhab.holdtheseat.events.PaymentAuthorized;
+import com.tanhab.holdtheseat.events.PaymentFailed;
 import com.tanhab.holdtheseat.events.RejectionReason;
 import com.tanhab.holdtheseat.events.SeatsRejected;
 import com.tanhab.holdtheseat.events.Topics;
@@ -166,6 +167,62 @@ class SagaEventListenerTest extends AbstractIntegrationTest {
         assertThat(cancelledRowsFor(pending.id())).isZero();
     }
 
+    @Test
+    void aPaymentFailureCancelsTheBookingAndAnnouncesIt() {
+        BookingResponse pending = createBooking();
+
+        publish(PaymentFailed.of(pending.id(), 8500L, "card_declined"));
+
+        await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
+                assertThat(bookingRepository.findById(pending.id())).hasValueSatisfying(booking -> {
+                    assertThat(booking.status()).isEqualTo(BookingStatus.CANCELLED);
+                    assertThat(booking.cancellationReason()).isEqualTo(CancellationReason.PAYMENT_FAILED);
+                }));
+
+        // The seats come from the booking row, not the PaymentFailed event, which carries none.
+        BookingCancelled cancelled = readCancelled(pending.id());
+        assertThat(cancelled.reason()).isEqualTo(CancellationReason.PAYMENT_FAILED);
+        assertThat(cancelled.seatIds()).containsExactlyElementsOf(pending.seatIds());
+    }
+
+    @Test
+    void anAuthorizationThenAFailureLeavesTheBookingConfirmed() {
+        BookingResponse pending = createBooking();
+        publish(PaymentAuthorized.of(pending.id(), 5000L, "mock-ref"));
+        await().atMost(Duration.ofSeconds(20))
+                .untilAsserted(() -> assertThat(confirmedRowsFor(pending.id())).isEqualTo(1));
+
+        PaymentFailed late = PaymentFailed.of(pending.id(), 5000L, "card_declined");
+        publish(late);
+
+        await().atMost(Duration.ofSeconds(20))
+                .untilAsserted(() -> assertThat(processedRowsFor(late.eventId())).isEqualTo(1));
+        assertThat(bookingRepository.findById(pending.id())).hasValueSatisfying(booking -> {
+            assertThat(booking.status()).isEqualTo(BookingStatus.CONFIRMED);
+            assertThat(booking.cancellationReason()).isNull();
+        });
+        assertThat(cancelledRowsFor(pending.id())).isZero();
+    }
+
+    @Test
+    void aFailureThenAnAuthorizationLeavesTheBookingCancelled() {
+        BookingResponse pending = createBooking();
+        publish(PaymentFailed.of(pending.id(), 5000L, "card_declined"));
+        await().atMost(Duration.ofSeconds(20))
+                .untilAsserted(() -> assertThat(cancelledRowsFor(pending.id())).isEqualTo(1));
+
+        PaymentAuthorized late = PaymentAuthorized.of(pending.id(), 5000L, "mock-ref");
+        publish(late);
+
+        await().atMost(Duration.ofSeconds(20))
+                .untilAsserted(() -> assertThat(processedRowsFor(late.eventId())).isEqualTo(1));
+        assertThat(bookingRepository.findById(pending.id())).hasValueSatisfying(booking -> {
+            assertThat(booking.status()).isEqualTo(BookingStatus.CANCELLED);
+            assertThat(booking.amountCents()).isNull();
+        });
+        assertThat(confirmedRowsFor(pending.id())).isZero();
+    }
+
     private BookingResponse createBooking() {
         return bookingService.create(new CreateBookingRequest(
                 UUID.randomUUID(), List.of(UUID.randomUUID(), UUID.randomUUID()), "cust-confirm"));
@@ -178,6 +235,11 @@ class SagaEventListenerTest extends AbstractIntegrationTest {
 
     private void publish(SeatsRejected event) {
         kafkaTemplate.send(Topics.SEATS, event.bookingId().toString(),
+                objectMapper.writeValueAsString(event)).join();
+    }
+
+    private void publish(PaymentFailed event) {
+        kafkaTemplate.send(Topics.PAYMENTS, event.bookingId().toString(),
                 objectMapper.writeValueAsString(event)).join();
     }
 

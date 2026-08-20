@@ -79,15 +79,25 @@ public class BookingService {
                 objectMapper.writeValueAsString(event));
     }
 
+    /**
+     * Cancels a PENDING booking and announces it. The seats come from the booking row rather
+     * than the caller, because {@code PaymentFailed} does not carry them and the row is the
+     * authority on what this booking is for — the same reason {@code confirm} re-reads them.
+     */
     @Transactional
-    public void cancel(UUID bookingId, UUID showId, List<UUID> seatIds, CancellationReason reason) {
+    public void cancel(UUID bookingId, CancellationReason reason) {
         if (bookingRepository.cancel(bookingId, reason) == 0) {
             log.warn("No pending booking {} to cancel", bookingId);
             return;
         }
-        BookingCancelled cancelled = BookingCancelled.of(bookingId, showId, seatIds, reason);
-        outboxRepository.append(cancelled.bookingId(), BookingCancelled.TYPE, cancelled.topic(),
-                objectMapper.writeValueAsString(cancelled));
+
+        Booking cancelled = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new BookingNotFoundException(bookingId));
+
+        BookingCancelled event = BookingCancelled.of(
+                cancelled.id(), cancelled.showId(), cancelled.seatIds(), reason);
+        outboxRepository.append(event.bookingId(), BookingCancelled.TYPE, event.topic(),
+                objectMapper.writeValueAsString(event));
     }
 
     public BookingResponse findById(UUID id) {

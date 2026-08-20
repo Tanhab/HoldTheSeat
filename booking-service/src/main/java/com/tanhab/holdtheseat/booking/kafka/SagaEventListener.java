@@ -4,7 +4,9 @@ import com.tanhab.holdtheseat.booking.inbox.ProcessedEventRepository;
 import com.tanhab.holdtheseat.booking.service.BookingService;
 import com.tanhab.holdtheseat.events.CancellationReason;
 import com.tanhab.holdtheseat.events.DomainEvent;
+import com.tanhab.holdtheseat.events.CancellationReason;
 import com.tanhab.holdtheseat.events.PaymentAuthorized;
+import com.tanhab.holdtheseat.events.PaymentFailed;
 import com.tanhab.holdtheseat.events.SeatsRejected;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,8 +59,13 @@ public class SagaEventListener {
                 if (!processedEvents.claim(CONSUMER_GROUP, rejected.eventId())) {
                     return;
                 }
-                bookingService.cancel(rejected.bookingId(), rejected.showId(), rejected.seatIds(),
-                        CancellationReason.SEATS_REJECTED);
+                bookingService.cancel(rejected.bookingId(), CancellationReason.SEATS_REJECTED);
+            }
+            case PaymentFailed failed -> {
+                if (!processedEvents.claim(CONSUMER_GROUP, failed.eventId())) {
+                    return;
+                }
+                bookingService.cancel(failed.bookingId(), CancellationReason.PAYMENT_FAILED);
             }
             default -> log.debug("Not handled here: {}", event.getClass().getSimpleName());
         }
