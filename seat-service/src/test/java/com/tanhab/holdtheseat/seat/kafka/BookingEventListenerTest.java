@@ -1,7 +1,10 @@
 package com.tanhab.holdtheseat.seat.kafka;
 
 import com.tanhab.holdtheseat.events.BookingRequested;
+import com.tanhab.holdtheseat.events.DomainEvent;
+import com.tanhab.holdtheseat.events.RejectionReason;
 import com.tanhab.holdtheseat.events.SeatsHeld;
+import com.tanhab.holdtheseat.events.SeatsRejected;
 import com.tanhab.holdtheseat.events.Topics;
 import com.tanhab.holdtheseat.seat.AbstractIntegrationTest;
 import com.tanhab.holdtheseat.seat.hold.HoldKeys;
@@ -95,7 +98,7 @@ class BookingEventListenerTest extends AbstractIntegrationTest {
     }
 
     @Test
-    void aSeatAlreadyHeldByAnotherBookingIsRefusedWithoutAnEvent() {
+    void aSeatAlreadyHeldByAnotherBookingIsRejectedNamingTheSeatThatBlockedIt() {
         UUID winner = UUID.randomUUID();
         publish(BookingRequested.of(winner, SHOW, List.of(A1), "cust-winner"));
         await().atMost(Duration.ofSeconds(20))
@@ -105,19 +108,64 @@ class BookingEventListenerTest extends AbstractIntegrationTest {
         BookingRequested refused = BookingRequested.of(loser, SHOW, List.of(A1, A2), "cust-loser");
         publish(refused);
 
-        // Consumed and recorded, but nothing announced: the saga stops here until Phase 3.
+        // The refusal is now announced so the booking can cancel, instead of stranding it.
         await().atMost(Duration.ofSeconds(20))
-                .untilAsserted(() -> assertThat(processedEventRowsFor(refused.eventId())).isEqualTo(1));
-        assertThat(outboxRowsFor(loser)).isZero();
+                .untilAsserted(() -> assertThat(outboxRowsFor(loser)).isEqualTo(1));
+
+        SeatsRejected rejected = readRejection(loser);
+        assertThat(rejected.reason()).isEqualTo(RejectionReason.SEATS_UNAVAILABLE);
+        assertThat(rejected.conflictingSeatIds()).containsExactly(A1);
+        assertThat(rejected.seatIds()).containsExactlyInAnyOrder(A1, A2);
 
         // All-or-nothing still holds: the seat it could have had was not taken either.
         assertThat(redis.hasKey(HoldKeys.hold(SHOW, A2))).isFalse();
         assertThat(redis.opsForValue().get(HoldKeys.hold(SHOW, A1))).isEqualTo(winner.toString());
     }
 
+    @Test
+    void anUnknownSeatIsRejectedAndDoesNotStallThePartition() {
+        UUID phantom = UUID.fromString("cccccccc-0000-0000-0000-000000000099");
+
+        // Same partition for both records, so a stall on the first would starve the second.
+        UUID poisoned = UUID.randomUUID();
+        BookingRequested bad = BookingRequested.of(poisoned, SHOW, List.of(phantom), "cust-typo");
+        publishToPartition(bad, 0);
+
+        await().atMost(Duration.ofSeconds(20))
+                .untilAsserted(() -> assertThat(outboxRowsFor(poisoned)).isEqualTo(1));
+        assertThat(readRejection(poisoned).reason()).isEqualTo(RejectionReason.UNKNOWN_SEATS);
+
+        // The whole point: a well-formed record behind the poison one on the same partition
+        // still gets processed. Before S2 the poison record retried forever and blocked it.
+        UUID healthy = UUID.randomUUID();
+        publishToPartition(BookingRequested.of(healthy, SHOW, List.of(B1), "cust-ok"), 0);
+
+        await().atMost(Duration.ofSeconds(20))
+                .untilAsserted(() -> assertThat(outboxRowsFor(healthy)).isEqualTo(1));
+        assertThat(redis.opsForValue().get(HoldKeys.hold(SHOW, B1))).isEqualTo(healthy.toString());
+    }
+
     private void publish(BookingRequested event) {
         kafkaTemplate.send(Topics.BOOKINGS, event.bookingId().toString(),
                 objectMapper.writeValueAsString(event)).join();
+    }
+
+    private void publishToPartition(BookingRequested event, int partition) {
+        kafkaTemplate.send(Topics.BOOKINGS, partition, event.bookingId().toString(),
+                objectMapper.writeValueAsString(event)).join();
+    }
+
+    private SeatsRejected readRejection(UUID bookingId) {
+        String payload = jdbcClient.sql("""
+                        SELECT payload::text FROM outbox
+                        WHERE aggregate_id = :id AND event_type = :type
+                        """)
+                .param("id", bookingId)
+                .param("type", SeatsRejected.TYPE)
+                .query(String.class)
+                .single();
+
+        return (SeatsRejected) objectMapper.readValue(payload, DomainEvent.class);
     }
 
     private SeatsHeld readSeatsHeld(UUID bookingId) {

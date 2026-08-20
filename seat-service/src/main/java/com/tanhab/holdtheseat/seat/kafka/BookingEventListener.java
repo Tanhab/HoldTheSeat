@@ -3,8 +3,12 @@ package com.tanhab.holdtheseat.seat.kafka;
 import com.tanhab.holdtheseat.events.BookingConfirmed;
 import com.tanhab.holdtheseat.events.BookingRequested;
 import com.tanhab.holdtheseat.events.DomainEvent;
+import com.tanhab.holdtheseat.events.RejectionReason;
 import com.tanhab.holdtheseat.events.SeatsHeld;
+import com.tanhab.holdtheseat.events.SeatsRejected;
 import com.tanhab.holdtheseat.seat.domain.Seat;
+import com.tanhab.holdtheseat.seat.exception.ShowNotFoundException;
+import com.tanhab.holdtheseat.seat.exception.UnknownSeatException;
 import com.tanhab.holdtheseat.seat.hold.HoldOutcome;
 import com.tanhab.holdtheseat.seat.hold.HoldProperties;
 import com.tanhab.holdtheseat.seat.inbox.ProcessedEventRepository;
@@ -64,8 +68,26 @@ public class BookingEventListener {
                 if (!processedEvents.claim(CONSUMER_GROUP, requested.eventId())) {
                     return;
                 }
-                HoldOutcome outcome = seatHoldService.hold(requested.showId(), requested.bookingId(),
-                        requested.seatIds());
+                HoldOutcome outcome = null;
+                try {
+                    outcome = seatHoldService.hold(requested.showId(), requested.bookingId(),
+                            requested.seatIds());
+                } catch (UnknownSeatException e) {
+                    SeatsRejected rejected = SeatsRejected.invalidRequest(requested.bookingId(), requested.showId(),
+                            requested.seatIds(),
+                            RejectionReason.UNKNOWN_SEATS);
+                    outboxRepository.append(requested.bookingId(), SeatsRejected.TYPE, rejected.topic(),
+                            objectMapper.writeValueAsString(rejected));
+                } catch (ShowNotFoundException e) {
+                    SeatsRejected rejected = SeatsRejected.invalidRequest(requested.bookingId(), requested.showId(),
+                            requested.seatIds(),
+                            RejectionReason.UNKNOWN_SHOW);
+                    outboxRepository.append(requested.bookingId(), SeatsRejected.TYPE, rejected.topic(),
+                            objectMapper.writeValueAsString(rejected));
+                }
+                if (outcome == null) {
+                    return;
+                }
                 if (outcome.granted()) {
                     List<Seat> seats = seatRepository.findByIds(requested.showId(), requested.seatIds());
                     long total = seats.stream().mapToLong(Seat::priceCents).sum();
@@ -76,6 +98,10 @@ public class BookingEventListener {
                             objectMapper.writeValueAsString(seatsHeld));
 
                 } else {
+                    SeatsRejected rejected = SeatsRejected.seatsUnavailable(requested.bookingId(), requested.showId(),
+                            requested.seatIds(), outcome.conflictingSeatIds());
+                    outboxRepository.append(requested.bookingId(), SeatsRejected.TYPE, rejected.topic(),
+                            objectMapper.writeValueAsString(rejected));
                     log.warn("Seats not granted {}", outcome.conflictingSeatIds());
                 }
 
