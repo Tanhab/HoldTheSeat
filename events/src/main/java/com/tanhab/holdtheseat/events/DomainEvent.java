@@ -8,8 +8,9 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * The saga's vocabulary. Every event on every topic is one of these eight: four that
- * announce progress and four that announce a failure and its undoing.
+ * The saga's vocabulary. Every event on every topic is one of these nine: four that
+ * announce progress, four that announce a failure and its undoing, and one that announces
+ * a booking dying of silence ({@link BookingExpired}).
  *
  * <p>The discriminator is a {@code eventType} string written into the JSON body rather than
  * Jackson's default of a fully-qualified class name in a Kafka header. A class name on the
@@ -30,11 +31,12 @@ import java.util.UUID;
         @JsonSubTypes.Type(value = SeatsRejected.class, name = SeatsRejected.TYPE),
         @JsonSubTypes.Type(value = PaymentFailed.class, name = PaymentFailed.TYPE),
         @JsonSubTypes.Type(value = BookingCancelled.class, name = BookingCancelled.TYPE),
-        @JsonSubTypes.Type(value = SeatsReleased.class, name = SeatsReleased.TYPE)
+        @JsonSubTypes.Type(value = SeatsReleased.class, name = SeatsReleased.TYPE),
+        @JsonSubTypes.Type(value = BookingExpired.class, name = BookingExpired.TYPE)
 })
 public sealed interface DomainEvent
         permits BookingRequested, SeatsHeld, PaymentAuthorized, BookingConfirmed,
-                SeatsRejected, PaymentFailed, BookingCancelled, SeatsReleased {
+                SeatsRejected, PaymentFailed, BookingCancelled, SeatsReleased, BookingExpired {
 
     /**
      * Minted once, when the producing service writes its outbox row. Consumers dedup on it,

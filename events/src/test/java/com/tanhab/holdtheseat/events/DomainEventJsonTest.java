@@ -37,7 +37,8 @@ class DomainEventJsonTest {
                 SeatsRejected.invalidRequest(BOOKING_ID, SHOW_ID, SEAT_IDS, RejectionReason.UNKNOWN_SEATS),
                 PaymentFailed.of(BOOKING_ID, 9000L, "card_declined"),
                 BookingCancelled.of(BOOKING_ID, SHOW_ID, SEAT_IDS, CancellationReason.PAYMENT_FAILED),
-                SeatsReleased.of(BOOKING_ID, SHOW_ID, SEAT_IDS, 2L));
+                SeatsReleased.of(BOOKING_ID, SHOW_ID, SEAT_IDS, 2L),
+                BookingExpired.of(BOOKING_ID, SHOW_ID, SEAT_IDS));
     }
 
     @ParameterizedTest
@@ -147,6 +148,8 @@ class DomainEventJsonTest {
         assertThat(PaymentFailed.of(BOOKING_ID, 1L, "card_declined").topic())
                 .isEqualTo(Topics.PAYMENTS);
         assertThat(BookingCancelled.of(BOOKING_ID, SHOW_ID, SEAT_IDS, CancellationReason.SEATS_REJECTED).topic())
+                .isEqualTo(Topics.BOOKINGS);
+        assertThat(BookingExpired.of(BOOKING_ID, SHOW_ID, SEAT_IDS).topic())
                 .isEqualTo(Topics.BOOKINGS);
     }
 
