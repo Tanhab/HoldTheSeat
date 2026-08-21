@@ -8,7 +8,10 @@ import org.springframework.scripting.support.ResourceScriptSource;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -112,6 +115,20 @@ public class SeatHoldStore {
                 args.toArray());
 
         return settled == null ? 0L : settled;
+    }
+
+    /**
+     * Which of the given seats currently have a hold key. Callers already know the seat ids
+     * from Postgres, so this is O(seats) existence checks — not a keyspace scan.
+     */
+    public Set<UUID> heldAmong(UUID showId, Collection<UUID> seatIds) {
+        Set<UUID> held = new HashSet<>();
+        for (UUID seatId : seatIds) {
+            if (Boolean.TRUE.equals(redis.hasKey(HoldKeys.hold(showId, seatId)))) {
+                held.add(seatId);
+            }
+        }
+        return held;
     }
 
     /**

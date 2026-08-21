@@ -16,6 +16,10 @@
 ### seat: health, no key needed
 GET {{seatHost}}/actuator/health
 
+### seat: live map — AVAILABLE / HELD / SOLD merged from Postgres + Redis
+GET {{seatHost}}/shows/{{show}}/seats
+X-API-Key: {{seatKey}}
+
 ### seat: hold two seats -> 201
 POST {{seatHost}}/holds
 X-API-Key: {{seatKey}}
