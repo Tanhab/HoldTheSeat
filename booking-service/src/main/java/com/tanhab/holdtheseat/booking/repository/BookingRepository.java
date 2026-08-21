@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 
 import java.sql.Array;
 import java.sql.SQLException;
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -88,6 +89,30 @@ public class BookingRepository {
                 .param("reason", reason.name())
                 .param("id", bookingId)
                 .update();
+    }
+
+    /**
+     * Claims up to {@code limit} PENDING bookings older than {@code after} and marks them
+     * EXPIRED. The status predicate is the claim — two concurrent callers cannot both expire
+     * the same row under READ COMMITTED. Leave {@code cancellation_reason} null: EXPIRED is
+     * not a cancellation.
+     */
+    public List<Booking> expireStale(Duration after, int limit) {
+        return jdbcClient.sql("""
+                        UPDATE bookings SET status = 'EXPIRED', updated_at = now()
+                        WHERE id IN (
+                            SELECT id FROM bookings
+                            WHERE status = 'PENDING'
+                              AND created_at < now() - make_interval(secs => :afterSeconds)
+                            ORDER BY created_at
+                            LIMIT :limit
+                        )
+                        RETURNING %s
+                        """.formatted(COLUMNS))
+                .param("afterSeconds", after.toSeconds())
+                .param("limit", limit)
+                .query(BOOKING_MAPPER)
+                .list();
     }
 
     public Optional<Booking> findById(UUID id) {

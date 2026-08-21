@@ -49,6 +49,11 @@ holdtheseat:
   outbox:
     poll-interval-ms: ${OUTBOX_POLL_INTERVAL_MS:500}
     batch-size: ${OUTBOX_BATCH_SIZE:100}
+  # Must exceed seat-service holdtheseat.hold.ttl (default 10m). Nothing type-checks this.
+  expiry:
+    after: ${EXPIRY_AFTER:15m}
+    poll-interval-ms: ${EXPIRY_POLL_INTERVAL_MS:5000}
+    batch-size: ${EXPIRY_BATCH_SIZE:100}
   api-key:
     # SHA-256 of the accepted key. Dev key: hts_dev_9f4c2a7b1e8d63054a9c2f7b3e1d8a60
     hash: ${BOOKING_API_KEY_HASH:8d7937da24e7218a3824dd06c5fe3d505cf9f01eafbda99ab5bc0ea23c0c9269}
