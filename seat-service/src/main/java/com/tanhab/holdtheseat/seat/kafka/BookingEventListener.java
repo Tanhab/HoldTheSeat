@@ -2,6 +2,7 @@ package com.tanhab.holdtheseat.seat.kafka;
 
 import com.tanhab.holdtheseat.events.BookingCancelled;
 import com.tanhab.holdtheseat.events.BookingConfirmed;
+import com.tanhab.holdtheseat.events.BookingExpired;
 import com.tanhab.holdtheseat.events.BookingRequested;
 import com.tanhab.holdtheseat.events.DomainEvent;
 import com.tanhab.holdtheseat.events.RejectionReason;
@@ -121,7 +122,13 @@ public class BookingEventListener {
                 if (!processedEvents.claim(CONSUMER_GROUP, cancelled.eventId())) {
                     return;
                 }
-                releaseService.release(cancelled);
+                releaseService.release(cancelled.bookingId(), cancelled.showId(), cancelled.seatIds());
+            }
+            case BookingExpired expired -> {
+                if (!processedEvents.claim(CONSUMER_GROUP, expired.eventId())) {
+                    return;
+                }
+                releaseService.release(expired.bookingId(), expired.showId(), expired.seatIds());
             }
             default -> log.debug("Not handled here: {}", event.getClass().getSimpleName());
         }
