@@ -7,6 +7,7 @@ import com.tanhab.holdtheseat.booking.exception.BookingNotFoundException;
 import com.tanhab.holdtheseat.booking.expiry.ExpiryProperties;
 import com.tanhab.holdtheseat.booking.outbox.OutboxRepository;
 import com.tanhab.holdtheseat.booking.repository.BookingRepository;
+import com.tanhab.holdtheseat.booking.timeline.BookingTimelineService;
 import com.tanhab.holdtheseat.events.BookingCancelled;
 import com.tanhab.holdtheseat.events.BookingConfirmed;
 import com.tanhab.holdtheseat.events.BookingExpired;
@@ -31,15 +32,18 @@ public class BookingService {
     private final OutboxRepository outboxRepository;
     private final ExpiryProperties expiryProperties;
     private final ObjectMapper objectMapper;
+    private final BookingTimelineService bookingTimelineService;
 
     public BookingService(BookingRepository bookingRepository,
                           OutboxRepository outboxRepository,
                           ExpiryProperties expiryProperties,
-                          ObjectMapper objectMapper) {
+                          ObjectMapper objectMapper,
+                          BookingTimelineService bookingTimelineService) {
         this.bookingRepository = bookingRepository;
         this.outboxRepository = outboxRepository;
         this.expiryProperties = expiryProperties;
         this.objectMapper = objectMapper;
+        this.bookingTimelineService = bookingTimelineService;
     }
 
     /**
@@ -56,6 +60,7 @@ public class BookingService {
                 created.id(), created.showId(), created.seatIds(), created.customerId());
         outboxRepository.append(created.id(), BookingRequested.TYPE, event.topic(),
                 objectMapper.writeValueAsString(event));
+        bookingTimelineService.append(event);
 
         return toBookingResponse(created);
     }
@@ -82,6 +87,8 @@ public class BookingService {
                 confirmed.id(), confirmed.showId(), confirmed.seatIds());
         outboxRepository.append(confirmed.id(), BookingConfirmed.TYPE, event.topic(),
                 objectMapper.writeValueAsString(event));
+        bookingTimelineService.append(event);
+
     }
 
     /**
@@ -103,6 +110,7 @@ public class BookingService {
                 cancelled.id(), cancelled.showId(), cancelled.seatIds(), reason);
         outboxRepository.append(event.bookingId(), BookingCancelled.TYPE, event.topic(),
                 objectMapper.writeValueAsString(event));
+        bookingTimelineService.append(event);
     }
 
     /**
@@ -124,11 +132,13 @@ public class BookingService {
                     booking.id(), booking.showId(), booking.seatIds());
             outboxRepository.append(event.bookingId(), BookingExpired.TYPE, event.topic(),
                     objectMapper.writeValueAsString(event));
+            bookingTimelineService.append(event);
         }
         log.debug("Expired {} stale bookings", expired.size());
 
         return expired.size();
     }
+
 
     public BookingResponse findById(UUID id) {
         Booking booking = bookingRepository.findById(id).orElseThrow(() -> new BookingNotFoundException(id));

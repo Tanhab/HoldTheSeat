@@ -5,6 +5,7 @@ import com.tanhab.holdtheseat.booking.dto.BookingResponse;
 import com.tanhab.holdtheseat.booking.dto.CreateBookingRequest;
 import com.tanhab.holdtheseat.booking.exception.BookingNotFoundException;
 import com.tanhab.holdtheseat.booking.service.BookingService;
+import com.tanhab.holdtheseat.booking.timeline.BookingTimelineService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -63,6 +64,9 @@ class BookingControllerTest {
 
     @MockitoBean
     private BookingService bookingService;
+
+    @MockitoBean
+    private BookingTimelineService timelineService;
 
     @Test
     void createReturnsCreatedWithLocationHeader() throws Exception {
