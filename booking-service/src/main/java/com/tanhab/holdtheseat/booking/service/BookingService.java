@@ -5,6 +5,7 @@ import com.tanhab.holdtheseat.booking.dto.BookingResponse;
 import com.tanhab.holdtheseat.booking.dto.CreateBookingRequest;
 import com.tanhab.holdtheseat.booking.exception.BookingNotFoundException;
 import com.tanhab.holdtheseat.booking.expiry.ExpiryProperties;
+import com.tanhab.holdtheseat.booking.observability.BookingIdMdc;
 import com.tanhab.holdtheseat.booking.outbox.OutboxRepository;
 import com.tanhab.holdtheseat.booking.repository.BookingRepository;
 import com.tanhab.holdtheseat.booking.timeline.BookingTimelineService;
@@ -55,6 +56,7 @@ public class BookingService {
     @Transactional
     public BookingResponse create(CreateBookingRequest request) {
         Booking created = bookingRepository.insert(request.showId(), request.seatIds(), request.customerId());
+        BookingIdMdc.putBookingId(created.id());
 
         BookingRequested event = BookingRequested.of(
                 created.id(), created.showId(), created.seatIds(), created.customerId());

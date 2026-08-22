@@ -36,6 +36,10 @@ server:
   error:
     include-stacktrace: never
 
+logging:
+  pattern:
+    level: "%5p [${spring.application.name:},%X{bookingId:-}]"
+
 management:
   endpoints:
     web:
