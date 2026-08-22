@@ -110,6 +110,11 @@ Content-Type: application/json
 GET {{bookingHost}}/bookings/{{lastBooking}}
 X-API-Key: {{bookingKey}}
 
+### booking: saga diary for the happy path
+### Expect BookingRequested, SeatsHeld, PaymentAuthorized, BookingConfirmed.
+### Poll the seat map above while this runs: A1 AVAILABLE -> HELD -> SOLD.
+GET {{bookingHost}}/bookings/{{lastBooking}}/timeline
+X-API-Key: {{bookingKey}}
 
 ### booking: a card that always declines -> 201 PENDING, then CANCELLED
 ### customerId "decline-me" is the seeded decline rule (holdtheseat.gateway.decline-customer-id).
@@ -130,6 +135,11 @@ Content-Type: application/json
 GET {{bookingHost}}/bookings/{{declinedBooking}}
 X-API-Key: {{bookingKey}}
 
+### booking: saga diary for compensation
+### Expect PaymentFailed, BookingCancelled, and SeatsReleased. Map: A3 back to AVAILABLE.
+GET {{bookingHost}}/bookings/{{declinedBooking}}/timeline
+X-API-Key: {{bookingKey}}
+
 ### booking: a seat already sold -> 201 PENDING, then CANCELLED with a different reason
 ### Run the happy-path booking for seatA1 above first, so seatA1 is SOLD when this arrives.
 POST {{bookingHost}}/bookings
@@ -147,4 +157,9 @@ Content-Type: application/json
 ### booking: read it back -> CANCELLED, cancellationReason SEATS_REJECTED
 ### No payment was ever attempted for this booking: the payments table has no row for it.
 GET {{bookingHost}}/bookings/{{rejectedBooking}}
+X-API-Key: {{bookingKey}}
+
+### booking: saga diary for reject
+### Expect BookingRequested, SeatsRejected, BookingCancelled — no SeatsReleased (freed 0).
+GET {{bookingHost}}/bookings/{{rejectedBooking}}/timeline
 X-API-Key: {{bookingKey}}
